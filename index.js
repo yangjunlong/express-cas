@@ -14,6 +14,8 @@
 var http = require('http');
 var https = require('https');
 var url = require('url');
+// var parseXML      = require('xml2js').parseString,
+// var XMLprocessors = require('xml2js/lib/processors');
 
 // credential requestor / acceptor
 const LOGIN_URI = '/login';
@@ -102,7 +104,7 @@ function CASClient(options) {
   this.encodeServiceUrl = true;
 
   /**
-   * 
+   * Cas Session Name
    * 
    * @type {String}
    */
@@ -119,7 +121,7 @@ function CASClient(options) {
 
   Object.assign(this, options);
 
-  if(!(this.casServerUrlPrefix && this.casServerLoginUrl)) {
+  if(!(this.casServerUrlPrefix || this.casServerLoginUrl)) {
     throw new Error( 'The parameters casServerUrlPrefix and casServerLoginUrl need to be set at least one');
   }
   if(!this.serverName) {
@@ -130,11 +132,27 @@ function CASClient(options) {
   var casServerParts2 = url.parse(this.casServerLoginUrl);
 
   this.casServerProtocol = casServerParts2.protocol || casServerParts1.protocol;
-  this.casServerHost
+  // this.casServerHost = casServerParts2.host || casServerParts1.host;
+  // this.casServerPort = casServerParts2.port || casServerParts1.port;
+
   this.casServerUrlPrefix = this.casServerUrlPrefix || path.dirname(this.casServerLoginUrl);
   this.casServerLoginUrl = this.casServerLoginUrl || url.resolve(this.casServerUrlPrefix, LOGIN_URI);
 
   this.casServerValidateUri = P3_SERVICE_VALIDATE_URI;
+
+  this.request = this.casServerProtocol == 'http' ? http.request : https.request;
+
+  this._filterResponse = function(body, callback) {
+  	var result = {};
+  	try {
+  	  result = JSON.parse(body);
+  	} catch (error) {
+  	  console.log(error);
+  	  return;
+  	}
+
+  	callback(null, result);
+  };
 
   switch(this.version) {
   	case '1.0' :
@@ -148,9 +166,7 @@ function CASClient(options) {
   	  break;
   	default: // defaults 3.0 version
 
-  }
-
-  this.request = this.casServerProtocol == 'http' ? http.request : https.request;
+  } 
 }
 
 
@@ -162,6 +178,43 @@ CASClient.prototype.bounce = function(req, res, next) {
 CASClient.prototype.logout = function(req, res, next) {
 
 }
+
+CASClient.prototype._validate = function(req, res, next) {
+  var requestOptions = {
+  	method: 'POST'
+  };
+  var postData = {
+  	service: this.service || this.serverName + url.parse(req._parsedOriginalUrl || req.url).pathname,
+  	ticket: req.query.ticket
+  };
+
+  var url = url.resolve(this.casServerUrlPrefix, this.casServerValidateUri);
+  var request = this.request(url, requestOptions, response => {
+  	response.setEncoding('utf8');
+  	var body = '';
+
+  	response.on('data', chunk => {
+  	  body += chunk;
+  	});
+
+  	response.on('end', () => {
+  	  // request callback
+  	});
+    response.on('error', function(err) {
+      console.log('Response error from CAS: ', err);
+      res.sendStatus(401);
+    });
+  });
+
+  request.on('error', error => {
+    console.log('Request error with CAS: ', error);
+    res.sendStatus(401);
+  });
+
+  // write data to request body
+  request.write(postData);
+  request.end();
+};
 
 
 
