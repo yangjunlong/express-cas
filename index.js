@@ -11,8 +11,9 @@
  * @version $Id$
  */
 
-var http = require('http');
 var https = require('https');
+var http = require('http');
+var path = require('path');
 var url = require('url');
 // var parseXML      = require('xml2js').parseString,
 // var XMLprocessors = require('xml2js/lib/processors');
@@ -33,12 +34,12 @@ const PROXY_URI = '/proxy';
 const P3_SERVICE_VALIDATE_URI = '/p3/serviceValidate';
 // service/proxy ticket validation [CAS 3.0]
 const P3_PROXY_VALIDATE_URI = '/p3/proxyValidate'
-
+// Secure Access Markup Language
 const SAML_VALIDATE_URI = '/samlValidate';
 
 /**
- * Node cas client
- * 
+ * Node Cas Client
+ *
  * @see https://github.com/apereo/java-cas-client
  * 
  * @param {Object} options
@@ -104,11 +105,41 @@ function CASClient(options) {
   this.encodeServiceUrl = true;
 
   /**
-   * Cas Session Name
+   * cas session user name
    * 
    * @type {String}
    */
-  this.sessionName = 'cas';
+  this.sessionName = 'cas_username';
+
+  /**
+   * cas session info name
+   * 
+   * @type {String}
+   */
+  this.sessionInfo = 'cas_userinfo';
+
+  /**
+   * If dev mode is active, 
+   * set the CAS user to the specified dev user.
+   * 
+   * @type {String}
+   */
+  this.devModeUser = '';
+
+  /**
+   * If dev mode is active, 
+   * set the CAS Info to the specified dev info.
+   * 
+   * @type {String}
+   */
+  this.devModeInfo = {};
+
+  /**
+   * Destroy the entire session if the option is set.
+   * 
+   * @type {Boolean}
+   */
+  this.isDestroySession = false;
 
   /**
    * The CAS Server Supported version
@@ -119,6 +150,14 @@ function CASClient(options) {
    */
   this.version = '3.0';
 
+  /**
+   * Supported values are XML and JSON
+   * Default value: JSON
+   * 
+   * @type {String}
+   */
+  this.format = 'JSON';
+
   Object.assign(this, options);
 
   if(!(this.casServerUrlPrefix || this.casServerLoginUrl)) {
@@ -128,16 +167,18 @@ function CASClient(options) {
     throw new Error( 'Requires a serverName parameter.');
   }
 
-  var casServerParts1 = url.parse(this.casServerUrlPrefix);
-  var casServerParts2 = url.parse(this.casServerLoginUrl);
-
-  this.casServerProtocol = casServerParts2.protocol || casServerParts1.protocol;
-  // this.casServerHost = casServerParts2.host || casServerParts1.host;
-  // this.casServerPort = casServerParts2.port || casServerParts1.port;
-
   this.casServerUrlPrefix = this.casServerUrlPrefix || path.dirname(this.casServerLoginUrl);
-  this.casServerLoginUrl = this.casServerLoginUrl || url.resolve(this.casServerUrlPrefix, LOGIN_URI);
+  this.casServerLoginUri = this.casServerLoginUrl ? path.basename(this.casServerLoginUrl) : LOGIN_URI;
 
+  var casServerParts = url.parse(this.casServerUrlPrefix);
+
+  // cas server protocal
+  this.casServerProtocol = casServerParts.protocol;
+  this.casServerHost = casServerParts.host;
+  this.casServerPort = casServerParts.port;
+  this.casServerPath = casServerParts.path;
+
+  // default cas server validate uri
   this.casServerValidateUri = P3_SERVICE_VALIDATE_URI;
 
   this.request = this.casServerProtocol == 'http' ? http.request : https.request;
@@ -169,27 +210,153 @@ function CASClient(options) {
   } 
 }
 
-
+/**
+ * Bounces a request with CAS authentication. 
+ * If the user's session is not already validated with CAS, 
+ * their request will be redirected to the CAS login page.
+ * 
+ * @param  {Object}   req  
+ * @param  {Object}   res  
+ * @param  {Function} next
+ * @return {Undefined}       
+ */
 CASClient.prototype.bounce = function(req, res, next) {
+  this._handle(req, res, next, 1);
+};
 
+/**
+ * Redirect a request with CAS authentication.
+ * If the user's session is not already validated with CAS, 
+ * their request will be redirected to the CAS login page.
+ * 
+ * @param  {[type]}   req  
+ * @param  {[type]}   res  
+ * @param  {Function} next 
+ * @return {[type]}       
+ */
+CASClient.prototype.redirect = function(req, res, next) {
+  this._handle(req, res, next, 2);
+};
+
+/**
+ * Blocks a request with CAS authentication. 
+ * If the user's session is not already validated with CAS, 
+ * they will receive a 401 response.
+ * 
+ * @param  {[type]}   req  
+ * @param  {[type]}   res  
+ * @param  {Function} next 
+ * @return {}       
+ */
+CASClient.prototype.block = function(req, res, next) {
+  this._handle(req, res, next, 3);
+};
+
+/**
+ * Checks a request with CAS authentication.
+ * If the user's session is not already validated with CAS, 
+ * return false, otherwise return cas username
+ * 
+ * @param  {[type]}   req  
+ * @param  {[type]}   res  
+ * @param  {Function} next 
+ * @return {}       
+ */
+CASClient.prototype.check = function(req, res, next) {
+  return req.session[ this.sessionName ];
 };
 
 
+/**
+ * Logout the currently logged in CAS user.
+ * 
+ * @param  {Object}   req  
+ * @param  {Object}   res  
+ * @param  {Function} next 
+ * @return {}        
+ */
 CASClient.prototype.logout = function(req, res, next) {
+  if(this.isDestroySession) {
+    req.session.destroy(function(err) {
+      if(err) {
+        console.log(err);
+      }
+    });
+  } else { // Otherwise, just destroy the CAS session variables.
+    delete req.session[ this.sessionName ];
+    if (this.sessionInfo) {
+      delete req.session[ this.sessionInfo ];
+    }
+  }
 
+  // Redirect the client to the CAS logout.
+  res.redirect(url.resolve(this.casServerUrlPrefix, LOGOUT_URI));
 }
 
+CASClient.prototype._handle = function(req, res, next, authType) {
+  // If the session has been validated with CAS, no action is required.
+  if(this.check(req, res, next)) {
+    // If this is a bounce redirect, redirect the authenticated user.
+    if (authType === 2) {
+      res.redirect(req.session.cas_referer);
+    } else {
+      // Otherwise, allow them through to their request.
+      next();
+    }
+  } else if(this.devModeUser) {
+    req.session[ this.sessionName ] = this.devModeUser;
+    req.session[ this.sessionInfo ] = this.devModeInfo;
+    next();
+  } else if (authType === 3) {
+    // If the authentication type is BLOCK, simply send a 401 response.
+    res.sendStatus(401);
+  } else if (req.query && req.query.ticket) {
+    // If there is a CAS ticket in the query string, validate it with the CAS server.
+    this._validate(req, res, next);
+  } else {
+    // Otherwise, redirect the user to the CAS login.
+    this._login(req, res, next);
+  }
+};
+
+/**
+ * Checks the validity of a service ticket 
+ * and returns an XML/JSON-fragment response
+ * 
+ * @param  {Object}   req  
+ * @param  {Object}   res  
+ * @param  {Function} next 
+ * @return {[type]}        
+ */
 CASClient.prototype._validate = function(req, res, next) {
   var requestOptions = {
+    host: this.casServerHost,
+    port: this.casServerPort,
+    pathname: this.casServerPath + this.casServerValidateUri,
   	method: 'POST'
   };
+
   var postData = {
   	service: this.service || this.serverName + url.parse(req._parsedOriginalUrl || req.url).pathname,
-  	ticket: req.query.ticket
+  	ticket: req.query.ticket,
+    format: this.format
   };
 
-  var url = url.resolve(this.casServerUrlPrefix, this.casServerValidateUri);
-  var request = this.request(url, requestOptions, response => {
+  switch(this.version) {
+    case '1.0' :
+      
+      break;
+    case '2.0' :
+      
+      break;
+    case 'saml1.1' :
+      this.casServerValidateUri = SAML_VALIDATE_URI;
+      break;
+    default: // defaults 3.0 version
+
+  }
+
+  var request = this.request(requestOptions, response => {
   	response.setEncoding('utf8');
   	var body = '';
 
@@ -216,11 +383,29 @@ CASClient.prototype._validate = function(req, res, next) {
   request.end();
 };
 
+/**
+ * Redirects the client to the CAS login page.
+ * 
+ * @param  {Object}   req  
+ * @param  {Object}   res  
+ * @param  {Function} next 
+ * @return {}        
+ */
+CASClient.prototype._login = function(req, res, next) {
+  // Save the return URL in the session. If an explicit return URL is set as a
+  // query parameter, use that. Otherwise, just use the URL from the request.
+  req.session.cas_referer = req.query.referer || url.parse(req._parsedOriginalUrl || req.url).path;
 
+  // Set up the query parameters.
+  var query = {
+    service: this.service || this.serverName + url.parse(req._parsedOriginalUrl || req.url).pathname,
+    renew: this.renew
+  };
+
+  res.redirect(this.casServerUrlPrefix + url.format({
+    pathname: LOGIN_URI,
+    query: query
+  }));
+}
 
 module.exports = CASClient;
-
-
-
-
-

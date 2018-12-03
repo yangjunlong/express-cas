@@ -516,21 +516,24 @@ LT是一个可选字符串，可以由/login作为凭证请求者提供，并作
 ### 3.6. ticket-granting cookie
 TGC是CAS在建立单点登录会话时设置的HTTP cookie 。 此cookie维护客户端的登录状态，并且当它有效时，客户端可以将其呈现给CAS以代替主认证凭据。 服务可以通过第2.1.1,2.4.1和2.5.1节中描述的“renew”参数选择退出单点登录。
 
-3.6.1.TGC的属性
-如果相应的TGT长期支持未激活（4.1.1），则TGC应[SHALL]设置为在客户端浏览器会话结束时到期。
-CAS应将cookie路径设置为尽可能限制。 例如，如果CAS服务器设置在路径/cas下，则cookie路径应设置为/cas。
-TGC必须[MUST]包含足够的安全随机数据，以便TGC不可猜测。
-TGC应该[SHOULD]以字符TGC-开头。
-TGC的值应该遵循与TGT相同的规则。 通常，TGC的值可以[MAY]包含TGT本身作为经过身份验证的单点登录会话的表示。
-3.7. ticket and ticket-granting cookie character set
+#### 3.6.1.TGC的属性
+
+* 如果相应的TGT长期支持未激活（4.1.1），则TGC应[SHALL]设置为在客户端浏览器会话结束时到期。
+* CAS应将cookie路径设置为尽可能限制。 例如，如果CAS服务器设置在路径/cas下，则cookie路径应设置为/cas。
+* TGC必须[MUST]包含足够的安全随机数据，以便TGC不可猜测。
+* TGC应该[SHOULD]以字符TGC-开头。
+* TGC的值应该遵循与TGT相同的规则。 通常，TGC的值可以[MAY]包含TGT本身作为经过身份验证的单点登录会话的表示。
+
+### 3.7. ticket and ticket-granting cookie character set
 除了上述要求之外，所有CAS票证和TGC的值必须仅包含集合{A-Z，a-z，0-9}和连字符 - 中的字符。
 
-3.8. ticket-granting ticket
+### 3.8. ticket-granting ticket
 票证授予票证（TGT）是一个不透明的字符串，由CAS服务器生成，在访问/login登录成功时发出。 TGT可以[MAY]与TGC相关联，该TGC表示单点登录会话的状态，具有有效期并且作为发布ST，PGT等的基础和基线。
 
-3.8.1 TGT的属性
-服务可以[MAY]使用TGT来获得多个STs。 TGT不是一次性票证，并且与有效期和到期策略相关联。
-当正在管理其身份认证的客户端退出CAS时，TGT必须到期。
-TGTs必须[MUST]包含足够的安全随机数据，使它在一段合理的时间内不会被暴力攻击获得。
-TGTs应该[SHOULD]以字符TGT-开头。
-建议在与其他外部资源共享时对TGTs进行加密，以便最大限度地减少安全漏洞，因为它们与TGT绑定并代表身份验证会话。
+#### 3.8.1 TGT的属性
+
+* 服务可以[MAY]使用TGT来获得多个STs。 TGT不是一次性票证，并且与有效期和到期策略相关联。
+* 当正在管理其身份认证的客户端退出CAS时，TGT必须到期。
+* TGTs必须[MUST]包含足够的安全随机数据，使它在一段合理的时间内不会被暴力攻击获得。
+* TGTs应该[SHOULD]以字符TGT-开头。
+* 建议在与其他外部资源共享时对TGTs进行加密，以便最大限度地减少安全漏洞，因为它们与TGT绑定并代表身份验证会话。
