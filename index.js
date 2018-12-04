@@ -15,6 +15,8 @@ var https = require('https');
 var http = require('http');
 var path = require('path');
 var url = require('url');
+var querystring = require('querystring');
+
 // var parseXML      = require('xml2js').parseString,
 // var XMLprocessors = require('xml2js/lib/processors');
 
@@ -183,10 +185,12 @@ function CASClient(options) {
 
   this.request = this.casServerProtocol == 'http' ? http.request : https.request;
 
-  this._filterResponse = function(body, callback) {
+  this._formatValidateResponse = function(body, callback) {
   	var result = {};
   	try {
   	  result = JSON.parse(body);
+
+      // console.log(result.serviceResponse.authenticationSuccess.attributes);
   	} catch (error) {
   	  console.log(error);
   	  return;
@@ -195,12 +199,59 @@ function CASClient(options) {
   	callback(null, result);
   };
 
+
+  function _handleResponse (result, callback) {
+    try {
+      var failure = result.serviceResponse.authenticationFailure;
+      if (failure) {
+        return callback(new Error(failure.code + ':' + failure.description));
+      }
+      var success = result.serviceResponse.authenticationSuccess;
+      if (success) {
+        return callback(null, success.user, success.attributes);
+      } else {
+        return callback(new Error( 'CAS authentication failed.'));
+      }
+    } catch (err) {
+      console.log(err);
+      return callback(new Error('CAS authentication failed.'));
+    }
+  }
+
   switch(this.version) {
   	case '1.0' :
   	  this.casServerValidateUri = VALIDATE_URI;
+      this._formatValidateResponse = function(body, callback) {
+        var result = {};
+        try {
+          result = JSON.parse(body);
+        } catch (error) {
+          var lines = body.split('\n');
+          if(lines[ 0 ] === 'yes' && lines.length >= 2) {
+            // success
+            return callback(null, lines[1]);
+          } else if (lines[0] === 'no') {
+            return callback(new Error('CAS authentication failed.'));
+          } else {
+            return callback(new Error('Response from CAS server was bad.'));
+          }
+        }
+
+        _handleResponse(result, callback);
+      };
   	  break;
   	case '2.0' :
   	  this.casServerValidateUri = SERVICE_VALIDATE_URI;
+      this._formatValidateResponse = function(body, callback) {
+        var result = {};
+        try {
+          result = JSON.parse(body);
+        } catch (error) {
+          
+        }
+
+        _handleResponse(result, callback);
+      };
   	  break;
   	case 'saml1.1' :
       this.casServerValidateUri = SAML_VALIDATE_URI;
@@ -208,6 +259,8 @@ function CASClient(options) {
   	default: // defaults 3.0 version
 
   } 
+
+  this.bounce          = this.bounce.bind(this);
 }
 
 /**
@@ -320,6 +373,33 @@ CASClient.prototype._handle = function(req, res, next, authType) {
 };
 
 /**
+ * Redirects the client to the CAS login page.
+ * 
+ * @param  {Object}   req  
+ * @param  {Object}   res  
+ * @param  {Function} next 
+ * @return {}        
+ */
+CASClient.prototype._login = function(req, res, next) {
+  // Save the return URL in the session. If an explicit return URL is set as a
+  // query parameter, use that. Otherwise, just use the URL from the request.
+  req.session.cas_referer = req.query.referer || url.parse(req._parsedOriginalUrl || req.url).path;
+
+  // Set up the query parameters.
+  var query = {
+    service: this.service || url.resolve(this.serverName, url.parse(req._parsedOriginalUrl || req.url).pathname),
+    renew: this.renew
+  };
+
+  res.redirect(url.format({
+    protocol: this.casServerProtocol,
+    hostname: this.casServerHost,
+    pathname: url.resolve(this.casServerPath, LOGIN_URI),
+    query: query
+  }));
+}
+
+/**
  * Checks the validity of a service ticket 
  * and returns an XML/JSON-fragment response
  * 
@@ -329,18 +409,23 @@ CASClient.prototype._handle = function(req, res, next, authType) {
  * @return {[type]}        
  */
 CASClient.prototype._validate = function(req, res, next) {
-  var requestOptions = {
-    host: this.casServerHost,
-    port: this.casServerPort,
-    pathname: this.casServerPath + this.casServerValidateUri,
-  	method: 'POST'
-  };
-
-  var postData = {
-  	service: this.service || this.serverName + url.parse(req._parsedOriginalUrl || req.url).pathname,
-  	ticket: req.query.ticket,
+  var query = {
+    service: this.service || url.resolve(this.serverName, url.parse(req._parsedOriginalUrl || req.url).pathname),
+    ticket: req.query.ticket,
     format: this.format
   };
+
+  var requestOptions = {
+    host: this.casServerHost,
+    port: this.casServerPort
+  };
+
+  requestOptions.path = url.format({
+    pathname: url.resolve(this.casServerPath, this.casServerValidateUri),
+    query: query
+  });
+
+  var postData = querystring.stringify(query);
 
   switch(this.version) {
     case '1.0' :
@@ -350,7 +435,7 @@ CASClient.prototype._validate = function(req, res, next) {
       
       break;
     case 'saml1.1' :
-      this.casServerValidateUri = SAML_VALIDATE_URI;
+      
       break;
     default: // defaults 3.0 version
 
@@ -366,6 +451,19 @@ CASClient.prototype._validate = function(req, res, next) {
 
   	response.on('end', () => {
   	  // request callback
+      //req.session[ this.sessionName ] = 'test';
+      this._formatValidateResponse(body, (error, user, attributes) => {
+        if(error) {
+          console.log(error);
+          res.sendStatus(401);
+        } else {
+          req.session[this.sessionName] = user;
+          if (this.sessionInfo) {
+            req.session[this.sessionInfo] = attributes || {};
+          }
+          res.redirect(req.session.cas_referer);
+        }
+      });
   	});
     response.on('error', function(err) {
       console.log('Response error from CAS: ', err);
@@ -382,30 +480,5 @@ CASClient.prototype._validate = function(req, res, next) {
   request.write(postData);
   request.end();
 };
-
-/**
- * Redirects the client to the CAS login page.
- * 
- * @param  {Object}   req  
- * @param  {Object}   res  
- * @param  {Function} next 
- * @return {}        
- */
-CASClient.prototype._login = function(req, res, next) {
-  // Save the return URL in the session. If an explicit return URL is set as a
-  // query parameter, use that. Otherwise, just use the URL from the request.
-  req.session.cas_referer = req.query.referer || url.parse(req._parsedOriginalUrl || req.url).path;
-
-  // Set up the query parameters.
-  var query = {
-    service: this.service || this.serverName + url.parse(req._parsedOriginalUrl || req.url).pathname,
-    renew: this.renew
-  };
-
-  res.redirect(this.casServerUrlPrefix + url.format({
-    pathname: LOGIN_URI,
-    query: query
-  }));
-}
 
 module.exports = CASClient;
