@@ -44,3 +44,56 @@ var cas = new CASClient({
 | `devModeInfo` | _Object_ | The CAS user information to use if dev mode is active. Defaults to `{}`| No |
 | `isDestroySession` | _Boolean_ | If true, the logout function will destroy the entire session upon CAS logout. Otherwise, it will only delete the session variable storing the CAS user. Defaults to `false`| No |
 | `version` | _String_ | The CAS protocol version. Valid values are `"1.0"\|"2.0\|"3.0"\|"saml1.1"`.  Defaults to `3.0`| No |
+
+
+### Usage
+
+```javascript
+var express = require('express');
+var session = require('express-session');
+var CAS = require('express-cas');
+
+var cas = new CAS({
+  casServerUrlPrefix: 'https://localhost:8443/cas',
+  serverName: 'http://localhost:3000'
+});
+
+var app = express();
+
+app.use( session({
+ secret: 'super secret key',
+ resave: false,
+ saveUninitialized: true
+}));
+
+// Unauthenticated clients will be redirected to the CAS login 
+// and then back to this route once authenticated.
+app.get('/app', cas.bounce, function( req, res ) {
+  res.send( '<html><body>Hello!</body></html>' );
+});
+
+// Unauthenticated clients will receive a 401 
+// Unauthorized response instead of the JSON data.
+app.get('/api', cas.block, function( req, res ) {
+  res.json({ success: true });
+});
+
+// An example of accessing the CAS user session variable. 
+// This could be used to retrieve your own local user records
+// based on authenticated CAS username.
+app.get('/api/user', cas.block, function ( req, res ) {
+  res.json( { cas_username: req.session[ cas.sessionName ] } );
+});
+
+// Unauthenticated clients will be redirected to the CAS login 
+// and then to the provided "referer" query parameter once authenticated.
+app.get('/authenticate', cas.redirect );
+
+// This route will de-authenticate the client with the Express server 
+// and then redirect the client to the CAS logout page.
+app.get('/logout', cas.logout);
+```
+
+## 参考
+* [cas-authentication](https://github.com/kylepixel/cas-authentication)
+* [CAS Protocol 3.0 Specification](https://apereo.github.io/cas/5.3.x/protocol/CAS-Protocol-Specification.html)

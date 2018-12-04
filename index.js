@@ -15,10 +15,10 @@ var https = require('https');
 var http = require('http');
 var path = require('path');
 var url = require('url');
-var querystring = require('querystring');
+var parseXML      = require('xml2js').parseString;
+var XMLprocessors = require('xml2js/lib/processors');
 
-// var parseXML      = require('xml2js').parseString,
-// var XMLprocessors = require('xml2js/lib/processors');
+var querystring = require('querystring');
 
 // credential requestor / acceptor
 const LOGIN_URI = '/login';
@@ -158,7 +158,7 @@ function CASClient(options) {
    * 
    * @type {String}
    */
-  this.format = 'JSON';
+  // this.format = 'JSON';
 
   Object.assign(this, options);
 
@@ -185,76 +185,109 @@ function CASClient(options) {
 
   this.request = this.casServerProtocol == 'http' ? http.request : https.request;
 
+  // format 2.0, 3.0 validate response
   this._formatValidateResponse = function(body, callback) {
-  	var result = {};
-  	try {
-  	  result = JSON.parse(body);
+  	parseXML(body, {
+      trim: true,
+      normalize: true,
+      explicitArray: false,
+      tagNameProcessors: [XMLprocessors.stripPrefix],
+      valueProcessors: [function(value) {
+        return decodeURIComponent(value);
+      }]
+    }, function(error, result) {
+      if (error) {
+        return callback(new Error('Response from CAS server was bad.'));
+      }
 
-      // console.log(result.serviceResponse.authenticationSuccess.attributes);
-  	} catch (error) {
-  	  console.log(error);
-  	  return;
-  	}
-
-  	callback(null, result);
+      try {
+        var failure = result.serviceResponse.authenticationFailure;
+        if (failure) {
+          return callback(new Error('CAS authentication failed (' + failure.$.code + ').'));
+        }
+        var success = result.serviceResponse.authenticationSuccess;
+        if (success) {
+          return callback(null, success.user, success.attributes);
+        } else {
+          return callback(new Error( 'CAS authentication failed.'));
+        }
+      } catch (err) {
+        console.log(err);
+        return callback(new Error('CAS authentication failed.'));
+      }
+    });
   };
-
-
-  function _handleResponse (result, callback) {
-    try {
-      var failure = result.serviceResponse.authenticationFailure;
-      if (failure) {
-        return callback(new Error(failure.code + ':' + failure.description));
-      }
-      var success = result.serviceResponse.authenticationSuccess;
-      if (success) {
-        return callback(null, success.user, success.attributes);
-      } else {
-        return callback(new Error( 'CAS authentication failed.'));
-      }
-    } catch (err) {
-      console.log(err);
-      return callback(new Error('CAS authentication failed.'));
-    }
-  }
 
   switch(this.version) {
   	case '1.0' :
   	  this.casServerValidateUri = VALIDATE_URI;
       this._formatValidateResponse = function(body, callback) {
-        var result = {};
-        try {
-          result = JSON.parse(body);
-        } catch (error) {
-          var lines = body.split('\n');
-          if(lines[ 0 ] === 'yes' && lines.length >= 2) {
-            // success
-            return callback(null, lines[1]);
-          } else if (lines[0] === 'no') {
-            return callback(new Error('CAS authentication failed.'));
-          } else {
-            return callback(new Error('Response from CAS server was bad.'));
-          }
+        var lines = body.split('\n');
+        if(lines[ 0 ] === 'yes' && lines.length >= 2) {
+          // success
+          return callback(null, lines[1]);
+        } else if (lines[0] === 'no') {
+          // failed
+          return callback(new Error('CAS authentication failed.'));
+        } else {
+          return callback(new Error('Response from CAS server was bad.'));
         }
-
-        _handleResponse(result, callback);
       };
   	  break;
   	case '2.0' :
   	  this.casServerValidateUri = SERVICE_VALIDATE_URI;
-      this._formatValidateResponse = function(body, callback) {
-        var result = {};
-        try {
-          result = JSON.parse(body);
-        } catch (error) {
-          
-        }
-
-        _handleResponse(result, callback);
-      };
   	  break;
+    case '3.0' :
+      // todo nothing
+      
+      break;
   	case 'saml1.1' :
       this.casServerValidateUri = SAML_VALIDATE_URI;
+      this._formatValidateResponse = function(body, callback) {
+        parseXML(body, {
+          trim: true,
+          normalize: true,
+          explicitArray: false,
+          tagNameProcessors: [XMLprocessors.normalize, XMLprocessors.stripPrefix],
+          valueProcessors: [function(value) {
+            return decodeURIComponent(value);
+          }]
+        }, function(error, result) {
+          if (error) {
+            return callback(new Error('Response from CAS server was bad.'));
+          }
+
+          try {
+            var samlResponse = result.envelope.body.response;
+            var success = samlResponse.status.statuscode.$.Value.split(':')[ 1 ];
+            if (success !== 'Success') {
+              return callback(new Error('CAS authentication failed (' + success + ').'));
+            } else {
+              var attributes = {};
+              var attributesArray = samlResponse.assertion.attributestatement.attribute;
+              if (!(attributesArray instanceof Array)) {
+                attributesArray = [ attributesArray ];
+              }
+              attributesArray.forEach(function(attr){
+                var thisAttrValue;
+                if (attr.attributevalue instanceof Array){
+                  thisAttrValue = [];
+                  attr.attributevalue.forEach(function(v) {
+                    thisAttrValue.push(v._);
+                  });
+                } else {
+                  thisAttrValue = attr.attributevalue._;
+                }
+                attributes[ attr.$.AttributeName ] = thisAttrValue;
+              });
+              return callback(null, samlResponse.assertion.authenticationstatement.subject.nameidentifier, attributes);
+            }
+          } catch (err) {
+            console.log(err);
+            return callback(new Error('CAS authentication failed.'));
+          }
+        });
+      };
   	  break;
   	default: // defaults 3.0 version
 
@@ -411,8 +444,7 @@ CASClient.prototype._login = function(req, res, next) {
 CASClient.prototype._validate = function(req, res, next) {
   var query = {
     service: this.service || url.resolve(this.serverName, url.parse(req._parsedOriginalUrl || req.url).pathname),
-    ticket: req.query.ticket,
-    format: this.format
+    ticket: req.query.ticket
   };
 
   var requestOptions = {
@@ -435,7 +467,36 @@ CASClient.prototype._validate = function(req, res, next) {
       
       break;
     case 'saml1.1' :
-      
+      var now = new Date();
+      postData = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">',
+        '  <SOAP-ENV:Header/>',
+        '  <SOAP-ENV:Body>',
+        '    <samlp:Request xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol" MajorVersion="1"',
+        '      MinorVersion="1" RequestID="_' + req.host + '.' + now.getTime() + '"',
+        '      IssueInstant="' + now.toISOString() + '">',
+        '      <samlp:AssertionArtifact>',
+        '        ' + req.query.ticket,
+        '      </samlp:AssertionArtifact>',
+        '    </samlp:Request>',
+        '  </SOAP-ENV:Body>',
+        '</SOAP-ENV:Envelope>'
+      ].join('\n');
+
+      requestOptions.method = 'POST';
+      requestOptions.path = url.format({
+        pathname: url.resolve(this.casServerPath, this.casServerValidateUri),
+        query: {
+          TARGET : query.service,
+          ticket: ''
+        }
+      });
+
+      requestOptions.headers = {
+        'Content-Type': 'text/xml',
+        'Content-Length': Buffer.byteLength(postData)
+      };
       break;
     default: // defaults 3.0 version
 
