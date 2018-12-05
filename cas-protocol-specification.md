@@ -537,3 +537,368 @@ TGC是CAS在建立单点登录会话时设置的HTTP cookie 。 此cookie维护�
 * TGTs必须[MUST]包含足够的安全随机数据，使它在一段合理的时间内不会被暴力攻击获得。
 * TGTs应该[SHOULD]以字符TGT-开头。
 * 建议在与其他外部资源共享时对TGTs进行加密，以便最大限度地减少安全漏洞，因为它们与TGT绑定并代表身份验证会话。
+
+## 4.Optional Features
+### 4.1.Long-Term Tickets - Remember-Me [CAS 3.0]
+CAS Server可以支持LTGTs（称为“记住我”功能）。 如果CAS服务器支持此功能，只要CAS服务器中的LTGT未过期且浏览器TGC Cookie有效，就可以对CAS服务器（执行重复，非交互式）重新登录。
+
+#### 4.1.1.Enabling Remember-Me (Login Page)
+CAS服务器必须[MUST]在登录页面上提供一个复选框，以允许记住我的功能。
+默认情况下，必须[MUST]取消选中该复选框。
+用户必须[MUST]选择是否启用Remember-Me进行登录。 见2.2.2节。
+
+#### 4.1.2 Security implications
+启用Remember-Me可能会产生安全隐患。 由于CAS身份验证绑定到浏览器，并且当存在有效的LTGT并且浏览器提供的CAS cookie有效时，用户没有以交互方式登录，因此必须特别注意CAS客户端到处理Remember-Me正确登录。 必须由CAS客户负责决定是否以及何时可以特别处理Remember-Me CAS登录。 见4.1.3。
+
+#### 4.1.3 CAS Validation Response Attributes
+由于只有CAS客户端必须[MUST]决定如何处理Remember-Me登录（见4.2.1），CAS服务器必须提供有关到CAS客户端的Remember-Me登录的信息。 在这种情况下，此信息必须由CAS服务器支持的所有票证验证方法提供（参见第2.5,2.6和2.8节）。
+
+在serviceValidate XML响应中（参见附录A），必须由longTermAuthenticationRequestTokenUsed属性指示记住我的登录。 此外，isFromNewLogin属性可用于确定这是否具有安全隐患。
+在SAML验证响应中，Remember-Me必须由longTermAuthenticationRequestTokenUsed属性指示。
+
+#### 4.1.4 CAS Client requirements
+如果CAS客户端需要特殊处理Remember-Me登录（例如，在记住的登录时拒绝访问CAS客户端应用程序的敏感区域），则CAS客户端不得使用/validate CAS验证URL，因为此URL不支持CAS 验证响应文档中的属性。
+
+#### 4.1.5 Long-Term ticket-granting cookie properties
+当CAS服务器创建LTGT时，TGC不得在3.6.1中定义的客户端浏览器会话结束时到期。 相反，TGC将在定义的Long-Term TGT票证生命周期到期。
+
+LTGT的生命周期的定义取决于CAS服务器实现者。LTGT的生命周期不得超过3个月。
+
+### 4.2 /samlValidate [CAS 3.0]
+/samlValidate通过HTTP POST提供的SAML 1.1请求文档检查ST的有效性。 必须返回SAML（安全访问标记语言）7 1.1响应文档。 这允许释放经过身份验证的NetID的其他信息（属性）。 安全断言标记语言（SAML）描述了一种文档和协议框架，通过该框架可以交换安全断言（例如关于先前的认证行为的断言）。
+
+#### 4.2.1.参数
+必须将以下HTTP请求参数传递给/samlValidate。 它们都是区分大小写的
+
+TARGET [REQUIRED] -后端服务的URL编码服务标识符。 请注意，作为HTTP请求参数，此URL值必须按照RFC 1738的第2.2节中的描述进行URL编码。 此处指定的服务标识符必须与提供给/login的服务参数匹配。 见2.1.1节。 TARGET服务应使用HTTPS。 SAML属性不得发布到非SSL站点。
+
+#### 4.2.2.HTTP Request Method and Body
+请求/samlValidate必须是HTTP POST请求。 请求主体必须是文档类型为“text/xml”的有效SAML 1.0或1.1请求XML文档。
+
+#### 4.2.3.SAML request values
+
+* RequestID [REQUIRED]  - 请求的唯一标识符
+* IssueInstant [REQUIRED]  - 请求的时间戳
+* samlp：AssertionArtifact [REQUIRED]  - 在登录时作为响应参数获取的有效CAS ST。 见2.2.4节。
+
+#### 4.2.4 /samlValidate POST请求示例
+
+```
+POST /cas/samlValidate?TARGET=
+Host: cas.example.com
+Content-Length: 491
+Content-Type: text/xml
+```
+
+```xml
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+    <SOAP-ENV:Header/>
+    <SOAP-ENV:Body>
+        <samlp:Request xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol" MajorVersion="1" MinorVersion="1" RequestID="_192.168.16.51.1024506224022" IssueInstant="2002-06-19T17:03:44.022Z">
+            <samlp:AssertionArtifact>ST-1-u4hrm3td92cLxpCvrjylcas.example.com</samlp:AssertionArtifact>
+        </samlp:Request>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+```
+
+#### 4.2.5 SAML response
+CAS服务器对/samlValidate请求的响应。必须是SAML 1.1响应。
+
+SAML 1.1验证响应示例：
+```xml
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header />
+  <SOAP-ENV:Body>
+    <Response xmlns="urn:oasis:names:tc:SAML:1.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:1.0:assertion"
+    xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol" xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" IssueInstant="2008-12-10T14:12:14.817Z"
+    MajorVersion="1" MinorVersion="1" Recipient="https://eiger.iad.vt.edu/dat/home.do"
+    ResponseID="_5c94b5431c540365e5a70b2874b75996">
+      <Status>
+        <StatusCode Value="samlp:Success">
+        </StatusCode>
+      </Status>
+      <Assertion xmlns="urn:oasis:names:tc:SAML:1.0:assertion" AssertionID="_e5c23ff7a3889e12fa01802a47331653"
+      IssueInstant="2008-12-10T14:12:14.817Z" Issuer="localhost" MajorVersion="1"
+      MinorVersion="1">
+        <Conditions NotBefore="2008-12-10T14:12:14.817Z" NotOnOrAfter="2008-12-10T14:12:44.817Z">
+          <AudienceRestrictionCondition>
+            <Audience>
+              https://some-service.example.com/app/
+            </Audience>
+          </AudienceRestrictionCondition>
+        </Conditions>
+        <AttributeStatement>
+          <Subject>
+            <NameIdentifier>johnq</NameIdentifier>
+            <SubjectConfirmation>
+              <ConfirmationMethod>
+                urn:oasis:names:tc:SAML:1.0:cm:artifact
+              </ConfirmationMethod>
+            </SubjectConfirmation>
+          </Subject>
+          <Attribute AttributeName="uid" AttributeNamespace="http://www.ja-sig.org/products/cas/">
+            <AttributeValue>12345</AttributeValue>
+          </Attribute>
+          <Attribute AttributeName="groupMembership" AttributeNamespace="http://www.ja-sig.org/products/cas/">
+            <AttributeValue>
+              uugid=middleware.staff,ou=Groups,dc=vt,dc=edu
+            </AttributeValue>
+          </Attribute>
+          <Attribute AttributeName="eduPersonAffiliation" AttributeNamespace="http://www.ja-sig.org/products/cas/">
+            <AttributeValue>staff</AttributeValue>
+          </Attribute>
+          <Attribute AttributeName="accountState" AttributeNamespace="http://www.ja-sig.org/products/cas/">
+            <AttributeValue>ACTIVE</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <AuthenticationStatement AuthenticationInstant="2008-12-10T14:12:14.741Z"
+        AuthenticationMethod="urn:oasis:names:tc:SAML:1.0:am:password">
+          <Subject>
+            <NameIdentifier>johnq</NameIdentifier>
+            <SubjectConfirmation>
+              <ConfirmationMethod>
+                urn:oasis:names:tc:SAML:1.0:cm:artifact
+              </ConfirmationMethod>
+            </SubjectConfirmation>
+          </Subject>
+        </AuthenticationStatement>
+      </Assertion>
+    </Response>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+```
+
+##### 4.2.5.1 SAML CAS response attributes
+SAML响应中可能提供以下附加属性：
+
+* longTermAuthenticationRequestTokenUsed - 如果CAS服务器支持LTGT（Remember-Me）（参见第4.1节），则SAML响应必须包含此属性以指示记住CAS客户端的登录。
+
+
+## 附录 A：CAS response XML schema
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:cas="http://www.yale.edu/tp/cas"
+           targetNamespace="http://www.yale.edu/tp/cas"
+           elementFormDefault="qualified">
+  <xs:annotation>
+    <xs:documentation>
+      The following is the schema for the Central Authentication Service (CAS) version 3.0 protocol response.<br />
+      This covers the responses for the following endpoints: /serviceValidate, /proxyValidate, /p3/serviceValidate, /p3/proxyValidate, /proxy.<br />
+      This specification is subject to change.<br />
+ 
+      Schema version: 3.0.3<br />
+ 
+      History:<br />
+      3.0   initial version for CAS 3.0 protocol spec <br />
+      3.0.3 fixed attributes memberOf / xs:any clash, added documentation.<br />
+    </xs:documentation>
+  </xs:annotation>
+  <xs:element name="serviceResponse" type="cas:ServiceResponseType">
+    <xs:annotation>
+      <xs:documentation>The service Response.</xs:documentation>
+    </xs:annotation>
+  </xs:element>
+  <xs:complexType name="ServiceResponseType">
+    <xs:choice>
+      <xs:element name="authenticationSuccess" type="cas:AuthenticationSuccessType"/>
+      <xs:element name="authenticationFailure" type="cas:AuthenticationFailureType"/>
+      <xs:element name="proxySuccess" type="cas:ProxySuccessType"/>
+      <xs:element name="proxyFailure" type="cas:ProxyFailureType"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="AuthenticationSuccessType">
+    <xs:sequence>
+      <xs:element name="user" type="xs:string">
+        <xs:annotation>
+          <xs:documentation>The username which authenticated successfully.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="attributes" type="cas:AttributesType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Optional attributes.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="proxyGrantingTicket" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Optional PGT.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="proxies" type="cas:ProxiesType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Optional type of proxies.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ProxiesType">
+    <xs:sequence>
+      <xs:element name="proxy" type="xs:string" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="AuthenticationFailureType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="code" type="xs:string" use="required">
+          <xs:annotation>
+            <xs:documentation>The error code on authentication failure.</xs:documentation>
+          </xs:annotation>
+        </xs:attribute>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="ProxySuccessType">
+    <xs:sequence>
+      <xs:element name="proxyTicket" type="xs:string">
+        <xs:annotation>
+          <xs:documentation>The PT.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ProxyFailureType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="code" type="xs:string" use="required">
+          <xs:annotation>
+            <xs:documentation>The error code on proxy failure.</xs:documentation>
+          </xs:annotation>
+        </xs:attribute>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="AttributesType">
+    <xs:sequence>
+      <xs:element name="authenticationDate" type="xs:dateTime" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="longTermAuthenticationRequestTokenUsed" type="xs:boolean" minOccurs="1" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>true if a long-term (Remember-Me) token was used</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="isFromNewLogin" type="xs:boolean" minOccurs="1" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>true if this was from a new, interactive login. If login was from a non-interactive login (e.g. Remember-Me), this value is false or might be omitted.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax">
+        <xs:annotation>
+          <xs:documentation>Any user specific attribute elements. May contain memberOf or any other elements.</xs:documentation>
+        </xs:annotation>
+      </xs:any>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>
+```
+> 注意：由于CAS服务器实施者可以自定义属性（请参阅模式定义），因此建议使用以下格式形成自定义属性：
+```xml
+<cas:attributes>
+    ...
+    <cas:[attribute-name]>VALUE</cas:[attribute-name]>
+</cas:attributes>
+```
+自定义属性的示例响应：
+```xml
+<cas:attributes>
+    <cas:authenticationDate>2015-11-12T09:30:10Z</cas:authenticationDate>
+    <cas:longTermAuthenticationRequestTokenUsed>true</cas:longTermAuthenticationRequestTokenUsed>
+    <cas:isFromNewLogin>true</cas:isFromNewLogin>
+    <cas:myAttribute>myValue</cas:myAttribute>
+</cas:attributes>
+```
+
+## 附录 B：Safe redirection
+成功登录后，必须小心处理将客户端从CAS重定向到最终目的地。 在大多数情况下，客户端已通过POST请求将凭据发送到CAS服务器。 通过此规范，CAS服务器必须使用GET请求将用户重定向到应用地址。
+
+HTTP/1.1 RFC提供了303的响应代码：它提供了所需的行为：通过POST请求接收数据的脚本可以通过303重定向，通过GET请求将浏览器转发到另一个URL。然而，并非所有浏览器都正确地实现了该行为。
+
+因此推荐[RECOMMENDED]重定向方法是使用JavaScript。示例如下：
+```html
+<html>
+    <head>
+        <title>Yale Central Authentication Service</title>
+        <script>
+            window.location.href="https://portal.yale.edu/Login?ticket=ST-..."
+mce_href="https://portal.yale.edu/Login?ticket=ST-...";`
+       </script>
+    </head>
+    <body>
+        <noscript>
+            <p>CAS login successful.</p>
+            <p>  Click <a xhref="https://portal.yale.edu/Login?ticket=ST-..."
+mce_href="https://portal.yale.edu/Login?ticket=ST-...">here</a>
+            to access the service you requested.<br />  </p>
+        </noscript>
+    </body>
+ </html>
+```
+此外，CAS应通过设置所有各种与缓存相关的标头来禁用浏览器缓存：
+
+* Pragma: no-cache
+* Cache-Control: no-store
+* Expires: [RFC 1123[6] date equal to or before now]
+
+## 附录 C：Logout XML document
+当CAS服务器支持SLO时，它将回调到向系统注册的每个服务，并使用以下SAML注销请求XML文档发送POST请求：
+```xml
+<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+     ID="[RANDOM ID]" Version="2.0" IssueInstant="[CURRENT DATE/TIME]">
+    <saml:NameID xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+      @NOT_USED@
+    </saml:NameID>
+    <samlp:SessionIndex>[SESSION IDENTIFIER]</samlp:SessionIndex>
+</samlp:LogoutRequest>`
+```
+
+## 附录 D: References
+[1] Bradner, S., “Key words for use in RFCs to Indicate Requirement Levels”, RFC 2119, Harvard University, March 1997.
+
+[2] Berners-Lee, T., Fielding, R., Frystyk, H., “Hypertext Transfer Protocol - HTTP/1.0”, RFC 1945, MIT/LCS, UC Irvine, MIT/LCS, May 1996.
+
+[3] Fielding, R., Gettys, J., Mogul, J., Frystyk, H., Masinter, L., Leach, P., Berners-Lee, T., “Hypertext Transfer Protocol - HTTP/1.1”, RFC 2068, UC Irvine, Compaq/W3C, Compaq, W3C/MIT, Xerox, Microsoft, W3C/MIT, June 1999.
+
+[4] Berners-Lee, T., Masinter, L., and MaCahill, M., “Uniform Resource Locators (URL)”, RFC 1738, CERN, Xerox Corporation, University of Minnesota, December 1994.
+
+[5] Kristol, D., Montulli, L., “HTTP State Management Mechanism”, RFC 2965, Bell Laboratories/Lucent Technologies, Epinions.com, Inc., October 2000.
+
+[6] Braden, R., “Requirements for Internet Hosts - Application and Support”, RFC 1123, Internet Engineering Task Force, October 1989.
+
+[7] OASIS SAML 1.1 standard, saml.xml.org, December 2009.
+
+[8] Apereo CAS Server reference implementation
+
+## 附录 E: CAS License
+Licensed to Apereo under one or more contributor license agreements. See the NOTICE file distributed with this work for additional information regarding copyright ownership. Apereo licenses this file to you under the Apache License, Version 2.0 (the “License”); you may not use this file except in compliance with the License. You may obtain a copy of the License at the following location:
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an “AS IS” BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+## 附录 F: YALE License
+Copyright (c) 2000-2005 Yale University.
+
+THIS SOFTWARE IS PROVIDED “AS IS,” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE EXPRESSLY DISCLAIMED. IN NO EVENT SHALL YALE UNIVERSITY OR ITS EMPLOYEES BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED, THE COSTS OF PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED IN ADVANCE OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Redistribution and use of this software in source or binary forms, with or without modification, are permitted, provided that the following conditions are met:
+
+1. Any redistribution must include the above copyright notice and disclaimer and this list of conditions in any related documentation and, if feasible, in the redistributed software.
+
+2. Any redistribution must include the acknowledgment, “This product includes software developed by Yale University,” in any related documentation and, if feasible, in the redistributed software.
+
+3. The names “Yale” and “Yale University” must not be used to endorse or promote products derived from this software.
+
+## 附录 F: Changes to this Document
+May 4, 2005: v1.0 - initial release for CAS 1.0 and CAS 2.0, Copyright © 2005, Yale University
+
+March 2, 2012: v1.0.1 - fixed “noscropt” typo. apetro per amazurek with credit to Faraz Khan at ASU for catching the typo.
+
+April, 2013: v3.0 - CAS 3.0 protocol, Apereo copyright, Apache License 2.0
+
+January, 2014: v3.0.1 - Attribute occurance
+
+September, 2015: v3.0.2 - Format parameter
+
+December, 2017: v3.0.3 - Fixed ServiceValidate XSD schema
+
+## 参考
+[CAS Protocol 3.0 Specification](https://apereo.github.io/cas/5.3.x/protocol/CAS-Protocol-Specification.html)
