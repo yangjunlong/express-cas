@@ -15,7 +15,7 @@ var https = require('https');
 var http = require('http');
 var path = require('path');
 var url = require('url');
-var parseXML      = require('xml2js').parseString;
+var parseXML = require('xml2js').parseString;
 var XMLprocessors = require('xml2js/lib/processors');
 
 var querystring = require('querystring');
@@ -165,6 +165,7 @@ function CASClient(options) {
   if(!(this.casServerUrlPrefix || this.casServerLoginUrl)) {
     throw new Error( 'The parameters casServerUrlPrefix and casServerLoginUrl need to be set at least one');
   }
+
   if(!this.serverName) {
     throw new Error( 'Requires a serverName parameter.');
   }
@@ -293,7 +294,10 @@ function CASClient(options) {
 
   } 
 
-  this.bounce          = this.bounce.bind(this);
+  this.check = this.check.bind(this);
+  this.block = this.block.bind(this);
+  this.bounce = this.bounce.bind(this);
+  this.redirect = this.redirect.bind(this);
 }
 
 /**
