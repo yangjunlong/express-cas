@@ -887,7 +887,7 @@ Redistribution and use of this software in source or binary forms, with or witho
 
 3. The names “Yale” and “Yale University” must not be used to endorse or promote products derived from this software.
 
-## 附录 F: Changes to this Document
+## 附录 G: Changes to this Document
 May 4, 2005: v1.0 - initial release for CAS 1.0 and CAS 2.0, Copyright © 2005, Yale University
 
 March 2, 2012: v1.0.1 - fixed “noscropt” typo. apetro per amazurek with credit to Faraz Khan at ASU for catching the typo.
