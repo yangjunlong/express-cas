@@ -22,7 +22,7 @@ var querystring = require('querystring');
 
 // credential requestor / acceptor
 const LOGIN_URI = '/login';
-// 	destroy CAS session (logout)
+//   destroy CAS session (logout)
 const LOGOUT_URI = '/logout';
 // service ticket validation
 const VALIDATE_URI = '/validate';
@@ -188,7 +188,7 @@ function CASClient(options) {
 
   // format 2.0, 3.0 validate response
   this._formatValidateResponse = function(body, callback) {
-  	parseXML(body, {
+    parseXML(body, {
       trim: true,
       normalize: true,
       explicitArray: false,
@@ -220,8 +220,8 @@ function CASClient(options) {
   };
 
   switch(this.version) {
-  	case '1.0' :
-  	  this.casServerValidateUri = VALIDATE_URI;
+    case '1.0' :
+      this.casServerValidateUri = VALIDATE_URI;
       this._formatValidateResponse = function(body, callback) {
         var lines = body.split('\n');
         if(lines[ 0 ] === 'yes' && lines.length >= 2) {
@@ -234,15 +234,15 @@ function CASClient(options) {
           return callback(new Error('Response from CAS server was bad.'));
         }
       };
-  	  break;
-  	case '2.0' :
-  	  this.casServerValidateUri = SERVICE_VALIDATE_URI;
-  	  break;
+      break;
+    case '2.0' :
+      this.casServerValidateUri = SERVICE_VALIDATE_URI;
+      break;
     case '3.0' :
       // todo nothing
       
       break;
-  	case 'saml1.1' :
+    case 'saml1.1' :
       this.casServerValidateUri = SAML_VALIDATE_URI;
       this._formatValidateResponse = function(body, callback) {
         parseXML(body, {
@@ -289,8 +289,8 @@ function CASClient(options) {
           }
         });
       };
-  	  break;
-  	default: // defaults 3.0 version
+      break;
+    default: // defaults 3.0 version
 
   } 
 
@@ -428,6 +428,10 @@ CASClient.prototype._login = function(req, res, next) {
     renew: this.renew
   };
 
+  if(this.encodeServiceUrl) {
+    query.service = encodeURI(query.service);
+  }
+
   res.redirect(url.format({
     protocol: this.casServerProtocol,
     hostname: this.casServerHost,
@@ -507,15 +511,15 @@ CASClient.prototype._validate = function(req, res, next) {
   }
 
   var request = this.request(requestOptions, response => {
-  	response.setEncoding('utf8');
-  	var body = '';
+    response.setEncoding('utf8');
+    var body = '';
 
-  	response.on('data', chunk => {
-  	  body += chunk;
-  	});
+    response.on('data', chunk => {
+      body += chunk;
+    });
 
-  	response.on('end', () => {
-  	  // request callback
+    response.on('end', () => {
+      // request callback
       //req.session[ this.sessionName ] = 'test';
       this._formatValidateResponse(body, (error, user, attributes) => {
         if(error) {
@@ -529,7 +533,7 @@ CASClient.prototype._validate = function(req, res, next) {
           res.redirect(req.session.cas_referer);
         }
       });
-  	});
+    });
     response.on('error', function(err) {
       console.log('Response error from CAS: ', err);
       res.sendStatus(401);
