@@ -297,6 +297,7 @@ function CASClient(options) {
   this.check = this.check.bind(this);
   this.block = this.block.bind(this);
   this.bounce = this.bounce.bind(this);
+  this.logout = this.logout.bind(this);
   this.redirect = this.redirect.bind(this);
 }
 
@@ -366,6 +367,10 @@ CASClient.prototype.check = function(req, res, next) {
  * @return {}        
  */
 CASClient.prototype.logout = function(req, res, next) {
+  var query = {
+    service: this.service || url.resolve(this.serverName, url.parse(req.query.service || '/').pathname),
+  };
+
   if(this.isDestroySession) {
     req.session.destroy(function(err) {
       if(err) {
@@ -373,14 +378,19 @@ CASClient.prototype.logout = function(req, res, next) {
       }
     });
   } else { // Otherwise, just destroy the CAS session variables.
-    delete req.session[ this.sessionName ];
-    if (this.sessionInfo) {
+    req.session && (delete req.session[ this.sessionName ]);
+    if (this.sessionInfo && req.session) {
       delete req.session[ this.sessionInfo ];
     }
   }
 
   // Redirect the client to the CAS logout.
-  res.redirect(url.resolve(this.casServerUrlPrefix, LOGOUT_URI));
+  res.redirect(url.format({
+    protocol: this.casServerProtocol,
+    hostname: this.casServerHost,
+    pathname: url.resolve(this.casServerPath, LOGOUT_URI),
+    query: query
+  }));
 }
 
 CASClient.prototype._handle = function(req, res, next, authType) {
